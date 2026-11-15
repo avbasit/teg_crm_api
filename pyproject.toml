@@ -1,0 +1,46 @@
+[project]
+name = "teg-crm-api"
+version = "0.1.0"
+description = "TEG CRM back end (FastAPI) and database migrations for Neon Postgres."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.16",
+    "argon2-cffi>=25.1",
+    "asyncpg>=0.32.0",
+    "fastapi>=0.163.1",
+    "psycopg[binary]>=3.2",
+    "pydantic-settings>=2.16.3",
+    "python-dotenv>=1.1",
+    "sqlalchemy[asyncio]>=2.0",
+]
+
+[dependency-groups]
+dev = [
+    "fastapi[standard]>=0.163.1",
+    "httpx>=0.28.1",
+    "pytest>=9.2.0",
+    "ruff>=0.12",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["live_db: hits the real Neon database (run with RUN_DB_TESTS=1)"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "D"]
+ignore = ["D203", "D213", "D413"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D100", "D104"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
