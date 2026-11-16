@@ -4,6 +4,7 @@ import logging
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import __version__
 from app.core.config import get_settings
@@ -37,6 +38,21 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"detail": str(exc)}
         )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        content: dict[str, object] = {"detail": exc.detail}
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            # TEMPORARY routing diagnostics for the Vercel deployment; remove once fixed.
+            content["path_received"] = request.scope.get("path")
+            content["root_path"] = request.scope.get("root_path")
+            content["routing_headers"] = {
+                k: v
+                for k, v in request.headers.items()
+                if k.startswith(("x-matched", "x-vercel-forwarded", "x-forwarded-host", "x-now"))
+                or k in {"x-vercel-deployment-url", "x-invoke-path", "x-original-url"}
+            }
+        return JSONResponse(content, status_code=exc.status_code, headers=exc.headers)
 
     @app.get("/", include_in_schema=False)
     async def root() -> RedirectResponse:
