@@ -45,11 +45,29 @@ def to_asyncpg_url(url: str) -> str:
     return urlunsplit(("postgresql+asyncpg", parts.netloc, parts.path, urlencode(query), ""))
 
 
+class DatabaseNotConfiguredError(RuntimeError):
+    """``DATABASE_URL`` is missing, e.g. Neon is not connected to the Vercel project."""
+
+    def __init__(self) -> None:
+        """Build the error with a message that tells the operator what to fix."""
+        super().__init__(
+            "DATABASE_URL is not set. Connect the Neon database to this Vercel project "
+            "(Storage tab) or add DATABASE_URL to .env."
+        )
+
+
 @lru_cache
 def get_engine() -> AsyncEngine:
-    """Return the process-wide async engine (created lazily on first use)."""
+    """Return the process-wide async engine (created lazily on first use).
+
+    Raises:
+        DatabaseNotConfiguredError: If no database URL is configured.
+    """
+    database_url = get_settings().database_url
+    if database_url is None:
+        raise DatabaseNotConfiguredError
     return create_async_engine(
-        to_asyncpg_url(get_settings().database_url),
+        to_asyncpg_url(database_url),
         poolclass=NullPool,
         connect_args={
             "ssl": "require",

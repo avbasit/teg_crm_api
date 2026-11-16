@@ -1,11 +1,17 @@
 """FastAPI application factory and ASGI entry point (``app.main:app``)."""
 
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+import logging
+
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app import __version__
 from app.core.config import get_settings
+from app.core.database import DatabaseNotConfiguredError
 from app.routers import health, organization
+
+# Vercel captures stdout/stderr into the function logs.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 
 def create_app() -> FastAPI:
@@ -25,6 +31,12 @@ def create_app() -> FastAPI:
     )
     app.include_router(health.router, prefix=prefix)
     app.include_router(organization.router, prefix=prefix)
+
+    @app.exception_handler(DatabaseNotConfiguredError)
+    async def database_not_configured(_: Request, exc: DatabaseNotConfiguredError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"detail": str(exc)}
+        )
 
     @app.get("/", include_in_schema=False)
     async def root() -> RedirectResponse:
