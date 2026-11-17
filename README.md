@@ -16,10 +16,14 @@ app/
   main.py                            App factory; every route is under /api/v1
   core/config.py                     Settings from env / .env (pydantic-settings)
   core/database.py                   Async SQLAlchemy + asyncpg for Neon's pooler; `DbSession` dependency
+  core/security.py                   argon2id passwords, session tokens (hash-only storage)
+  core/errors.py                     AppError -> {"detail", "code"} responses
+  dependencies.py                    CurrentUserDep, SessionUserDep, RequirePermission(menu, action)
   models/                            ORM models (mirror the SQL schema, never create it)
   schemas/                           Pydantic request/response models: the API contract
   repositories/                      All SQL queries; routers never query directly
-  routers/                           One module per area: health, organization, ...
+  services/                          Business rules (auth, access/scope, users, roles, teams, settings)
+  routers/                           One module per area: auth, users, roles, teams, settings, audit_logs
 api/index.py                         Vercel entry point (vercel.json routes every path here)
 migrations/
   sql/0001_initial_schema.sql        DDL - source of truth for the schema (30 tables)
@@ -31,14 +35,33 @@ scripts/
 tests/                               pytest; `live_db` tests run only with RUN_DB_TESTS=1
 ```
 
-## Endpoints (Phase 0)
+## Endpoints
 
-| Method | Path | Purpose |
+All under `/api/v1`. The full contract is at `/api/v1/docs` (hidden when `APP_ENV=production`) and `/api/v1/openapi.json`.
+
+**Auth** is a session cookie (`teg_session`) set by sign-in; see [ADR 0003](https://github.com/avbasit/teg_crm/blob/main/docs/adr/0003-server-side-sessions.md). Errors return `{"detail", "code"}`. Writes must be JSON (CSRF guard, otherwise 415).
+
+| Area | Endpoints | Right needed (menu · action) |
 |---|---|---|
-| GET | `/api/v1/health` | API version plus a database round trip (schema revision, latency). Returns 503 if Neon is unreachable |
-| GET | `/api/v1/organization` | Public organisation details (name, logo, timezone, currency) |
-| GET | `/api/v1/openapi.json` | OpenAPI schema; the web app generates its TypeScript types from it |
-| GET | `/api/v1/docs` | Interactive docs (hidden when `APP_ENV=production`) |
+| System | `GET /health`, `GET /organization` | none |
+| Auth | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/change-password` | signed in (allowed during a forced password change) |
+| My Account | `PATCH /auth/me` (own name, email, phone) | signed in |
+| Users | `GET /users` (status, role, search, paging; each user lists their teams), `GET /users/counts`, `POST /users`, `GET/PATCH /users/{id}`, `POST /users/{id}/pause\|activate\|archive\|reset-password` | `users` · view/create/edit/delete |
+| Roles | `GET /roles`, `GET/PUT /roles/{id}/permissions` | `users` or `settings.roles` · view; `settings.roles` · edit |
+| Teams | `GET/POST /teams`, `GET/PATCH/DELETE /teams/{id}`, `PUT /teams/{id}/members` | `teams` · view/create/edit/delete |
+| Organisation | `GET/PATCH /settings/organization` | `settings.organization` · view/edit |
+| Rules | `GET /settings/rules`, `PATCH /settings/rules` (hide history on reassign, deal value field, MQL statuses) | reading: signed in · hide-history: `settings.roles` edit · others: `settings.customizations` edit |
+| Customizations | `GET/POST /settings/lead-statuses`, `PATCH /settings/lead-statuses/{id}`, `PUT /settings/lead-statuses/order`, `GET/POST /settings/labels`, `PATCH/DELETE /settings/labels/{id}`, `GET/POST /settings/programs`, `PATCH /settings/programs/{id}` | reading: signed in · changing: `settings.customizations` |
+| Audit | `GET /audit-logs` (entity, actor, paging) | `settings.audit_log` · view |
+
+Rules enforced by the API (and tested):
+- New users start **invited** with a temporary password and become **active** once they set their own.
+- You can only manage users whose role is below yours (Super Admin manages everyone), and grant only roles below your own.
+- A manager must have a more senior role than the people reporting to them.
+- The last active Super Admin can't be paused, archived or demoted. The Super Admin role's rights are locked.
+- Data scope: Sales Managers see only their teams' users and teams.
+- Pausing, archiving or resetting a password signs the user out everywhere.
+- Every change is written to `audit_logs`; every sign-in attempt to `auth_events`.
 
 ## Setup and run (Windows)
 
@@ -55,7 +78,7 @@ uv run fastapi dev app/main.py    # http://localhost:8000/api/v1/docs
 | Command | Does |
 |---|---|
 | `uv run pytest -q` | Unit tests (no database needed) |
-| `$env:RUN_DB_TESTS='1'; uv run pytest -q` | Also run the live tests against Neon |
+| `$env:RUN_DB_TESTS='1'; uv run pytest -q` | Also run the live tests against Neon. Each test runs in a transaction that is **rolled back**, so nothing is saved |
 | `uv run ruff check .` / `uv run ruff format .` | Lint / format |
 | `uv export --no-dev --no-hashes --no-emit-project --format requirements-txt -o requirements.txt` | Refresh `requirements.txt` after changing dependencies (Vercel installs from it; CI checks it matches `uv.lock`) |
 

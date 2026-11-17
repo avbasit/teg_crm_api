@@ -13,6 +13,19 @@ from app.main import app
 from app.routers import health
 
 
+def latest_revision() -> str:
+    """Head revision of the Alembic migrations in this repo (what Neon should be on)."""
+    from pathlib import Path
+
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    root = Path(__file__).resolve().parents[1]
+    head = ScriptDirectory.from_config(Config(str(root / "alembic.ini"))).get_current_head()
+    assert head is not None
+    return head
+
+
 @pytest.fixture
 def fresh_settings() -> Iterator[None]:
     """Re-read settings/engine for one test, then restore the cached ones."""
@@ -85,7 +98,7 @@ def test_health_against_neon() -> None:
     """Live check: Neon reachable and migrated to the latest revision."""
     response = TestClient(app).get("/api/v1/health")
     assert response.status_code == 200, response.text
-    assert response.json()["database"]["schema_revision"] == "0002"
+    assert response.json()["database"]["schema_revision"] == latest_revision()
 
 
 @pytest.mark.live_db

@@ -39,6 +39,22 @@ class Settings(BaseSettings):
     organization_slug: str = "teg"
     api_prefix: str = "/api/v1"
 
+    # Sessions (opaque token in an httpOnly cookie; see ADR 0003)
+    session_cookie_name: str = "teg_session"
+    session_idle_hours: int = 12
+    """Session ends after this long without activity."""
+    session_max_days: int = 7
+    """Hard limit: sign in again after this, however active."""
+
+    # Brute-force protection
+    login_max_failures: int = 5
+    login_lockout_minutes: int = 15
+
+    @property
+    def secure_cookies(self) -> bool:
+        """Mark cookies ``Secure`` everywhere except plain-HTTP local development."""
+        return self.app_env != "local"
+
     @field_validator("app_env")
     @classmethod
     def _normalise_app_env(cls, value: str) -> str:
