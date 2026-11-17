@@ -1,5 +1,7 @@
 """Async database access for Neon Postgres (SQLAlchemy 2 + asyncpg).
 
+Local databases (localhost) get a small connection pool and no TLS; see get_engine.
+
 Serverless notes:
     * Vercel functions are short-lived, so the app does not keep its own
       connection pool (``NullPool``). Neon's PgBouncer pooler, reached through the
@@ -13,7 +15,7 @@ Serverless notes:
 
 from collections.abc import AsyncIterator
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import Depends
@@ -66,11 +68,20 @@ def get_engine() -> AsyncEngine:
     database_url = get_settings().database_url
     if database_url is None:
         raise DatabaseNotConfiguredError
+    # A database on this machine (local dev / browser E2E) has no TLS and no
+    # PgBouncer, so keep a small reusable pool there. In the cloud, Neon's pooler
+    # does the pooling and serverless functions shouldn't hold connections.
+    local = urlsplit(database_url).hostname in {"localhost", "127.0.0.1", "::1"}
+    pool_options: dict[str, Any] = (
+        {"pool_size": 5, "max_overflow": 5, "pool_pre_ping": False}
+        if local
+        else {"poolclass": NullPool}
+    )
     return create_async_engine(
         to_asyncpg_url(database_url),
-        poolclass=NullPool,
+        **pool_options,
         connect_args={
-            "ssl": "require",
+            "ssl": False if local else "require",
             "statement_cache_size": 0,
             "prepared_statement_cache_size": 0,
             "server_settings": {"application_name": "teg-crm-api"},
