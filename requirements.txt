@@ -30,6 +30,8 @@ markupsafe==3.0.4
     # via mako
 opentelemetry-api==1.45.2
     # via fastapi
+phonenumbers==9.0.43
+    # via teg-crm-api
 psycopg==3.3.9
     # via teg-crm-api
 psycopg-binary==3.3.9 ; implementation_name != 'pypy'

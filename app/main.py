@@ -10,12 +10,26 @@ from app import __version__
 from app.core.config import get_settings
 from app.core.database import DatabaseNotConfiguredError
 from app.core.errors import register_error_handlers
-from app.routers import audit_logs, auth, health, organization, roles, settings, teams, users
+from app.routers import (
+    audit_logs,
+    auth,
+    dashboard,
+    health,
+    leads,
+    organization,
+    roles,
+    settings,
+    tasks,
+    teams,
+    users,
+)
 
 # Vercel captures stdout/stderr into the function logs.
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# Only POST can be sent cross-site by a plain HTML form; PUT/PATCH/DELETE from another
+# origin always need a CORS preflight, which this API never grants.
+_FORM_METHODS = {"POST"}
 
 
 def create_app() -> FastAPI:
@@ -37,7 +51,19 @@ def create_app() -> FastAPI:
         docs_url=f"{prefix}/docs" if show_docs else None,
         redoc_url=None,
     )
-    for module in (health, organization, auth, users, roles, teams, settings, audit_logs):
+    for module in (
+        health,
+        organization,
+        auth,
+        dashboard,
+        leads,
+        tasks,
+        users,
+        roles,
+        teams,
+        settings,
+        audit_logs,
+    ):
         app.include_router(module.router, prefix=prefix)
     register_error_handlers(app)
 
@@ -45,14 +71,14 @@ def create_app() -> FastAPI:
     async def require_json_for_writes(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        """CSRF guard: state-changing requests must be JSON.
+        """CSRF guard: POST requests must be JSON.
 
         Browsers can't send `application/json` cross-site without a CORS preflight,
         and this API allows no cross-origin requests, so a forged form post from
         another site is rejected before it reaches any route.
         """
         content_type = request.headers.get("content-type", "")
-        if request.method in _UNSAFE_METHODS and not content_type.startswith("application/json"):
+        if request.method in _FORM_METHODS and not content_type.startswith("application/json"):
             return JSONResponse(
                 status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
                 content={

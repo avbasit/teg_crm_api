@@ -15,10 +15,18 @@ from app.models.identity import (
     User,
     UserSession,
 )
+from app.models.leads import Activity, Campaign, Contact, Lead, LeadAssignment, LeadLabel, Task
 from app.models.logs import AuditLog, AuthEvent
 from app.models.organization import Organization
 
 __all__ = [
+    "Activity",
+    "Campaign",
+    "Contact",
+    "Lead",
+    "LeadAssignment",
+    "LeadLabel",
+    "Task",
     "AppMenu",
     "AuditLog",
     "AuthEvent",

@@ -33,8 +33,9 @@ async def test_login_sets_session_and_returns_rights_and_menus(client, make_user
     assert body["user"]["role"]["key"] == "super_admin"
     assert body["permissions"]["users"]["create"] is True
     top_level = [m["key"] for m in body["menus"]]
-    assert {"users", "teams", "settings", "account"} <= set(top_level)
-    assert "leads" not in top_level  # screens from later phases stay hidden
+    expected = {"dashboard", "leads", "tasks", "users", "teams", "settings", "account"}
+    assert expected <= set(top_level)
+    assert "campaigns" not in top_level  # screens from later phases stay hidden
     assert "teg_session" in client.cookies
 
     me = await client.get("/api/v1/auth/me")
@@ -42,10 +43,10 @@ async def test_login_sets_session_and_returns_rights_and_menus(client, make_user
     assert me.json()["user"]["username"] == admin.username
 
 
-async def test_agent_sees_only_their_account_menu(client, make_user):
+async def test_agent_sees_only_their_work_and_account_menus(client, make_user):
     agent = await make_user("agent")
     body = await sign_in(client, agent)
-    assert [m["key"] for m in body["menus"]] == ["account"]
+    assert [m["key"] for m in body["menus"]] == ["dashboard", "leads", "tasks", "account"]
     assert (await client.get("/api/v1/users")).status_code == 403
 
 
@@ -355,7 +356,9 @@ async def test_agents_can_read_lookups_but_not_change_them(client, make_user):
 
 # --- Phase 1 acceptance: each role sees exactly the screens in the rights table ----------
 
-# Phase 1 screens (is_available) a role can VIEW, per docs/roles-and-permissions.md §4.
+# Phase 1 screens (is_available) a role can VIEW, per docs/roles-and-permissions.md Â§4.
+PHASE2_MENUS = {"dashboard": ["dashboard.pipeline"], "leads": ["leads.all"], "tasks": []}
+
 EXPECTED_MENUS = {
     "super_admin": {
         "users": [],
@@ -395,7 +398,7 @@ EXPECTED_MENUS = {
 async def test_each_role_sees_exactly_its_menus(client, make_user, role_key):
     body = await sign_in(client, await make_user(role_key))
     menus = {m["key"]: [c["key"] for c in m["children"]] for m in body["menus"]}
-    assert menus == EXPECTED_MENUS[role_key]
+    assert menus == {**PHASE2_MENUS, **EXPECTED_MENUS[role_key]}
 
 
 # --- My Account, rules, counts ----------------------------------------------------------

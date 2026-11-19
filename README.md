@@ -39,7 +39,7 @@ tests/                               pytest; `live_db` tests run only with RUN_D
 
 All under `/api/v1`. The full contract is at `/api/v1/docs` (hidden when `APP_ENV=production`) and `/api/v1/openapi.json`.
 
-**Auth** is a session cookie (`teg_session`) set by sign-in; see [ADR 0003](https://github.com/avbasit/teg_crm/blob/main/docs/adr/0003-server-side-sessions.md). Errors return `{"detail", "code"}`. Writes must be JSON (CSRF guard, otherwise 415).
+**Auth** is a session cookie (`teg_session`) set by sign-in; see [ADR 0003](https://github.com/avbasit/teg_crm/blob/main/docs/adr/0003-server-side-sessions.md). Errors return `{"detail", "code"}`. POST requests must be JSON (CSRF guard, otherwise 415); PUT, PATCH and DELETE from another site already need a CORS preflight.
 
 | Area | Endpoints | Right needed (menu · action) |
 |---|---|---|
@@ -53,6 +53,11 @@ All under `/api/v1`. The full contract is at `/api/v1/docs` (hidden when `APP_EN
 | Rules | `GET /settings/rules`, `PATCH /settings/rules` (hide history on reassign, deal value field, MQL statuses) | reading: signed in · hide-history: `settings.roles` edit · others: `settings.customizations` edit |
 | Customizations | `GET/POST /settings/lead-statuses`, `PATCH /settings/lead-statuses/{id}`, `PUT /settings/lead-statuses/order`, `GET/POST /settings/labels`, `PATCH/DELETE /settings/labels/{id}`, `GET/POST /settings/programs`, `PATCH /settings/programs/{id}` | reading: signed in · changing: `settings.customizations` |
 | Audit | `GET /audit-logs` (entity, actor, paging) | `settings.audit_log` · view |
+| Leads | `GET /leads` (search, status, label, campaign, owner incl. `unassigned`, source, task status, dates, calls, duplicates, contacted, sort, paging), `GET /leads/owners`, `GET /leads/campaigns`, `POST /leads`, `GET/PATCH/DELETE /leads/{id}`, `PATCH /leads/{id}/status`, `PUT /leads/{id}/labels`, `GET/POST /leads/{id}/activities`, `GET/POST /leads/{id}/tasks` | `leads.all` · view/create/edit/delete |
+| Lead owner | `PATCH /leads/{id}/owner`, `POST /leads/bulk/reassign` | `leads.all` · assign |
+| Bulk | `POST /leads/bulk/status`, `POST /leads/bulk/labels`, `POST /leads/bulk/delete` | `leads.all` · edit / delete |
+| Tasks | `GET /tasks` (`view` = overdue/today/upcoming/completed, `mine`), `PATCH /tasks/{id}` | `tasks` · view; `leads.all` · edit |
+| Dashboard | `GET /dashboard/summary` (cards, follow-ups, recent activity, Gulf-time day) | `dashboard.pipeline` · view |
 
 Rules enforced by the API (and tested):
 - New users start **invited** with a temporary password and become **active** once they set their own.
@@ -62,6 +67,10 @@ Rules enforced by the API (and tested):
 - Data scope: Sales Managers see only their teams' users and teams.
 - Pausing, archiving or resetting a password signs the user out everywhere.
 - Every change is written to `audit_logs`; every sign-in attempt to `auth_events`.
+- Leads: only a **call or meeting** counts as contact. The first one sets the response time, and the status stays locked until it happens (bulk status changes skip leads not yet contacted).
+- Reassigning a lead moves its open tasks to the new owner. History is never hidden.
+- Each lead is linked to a contact by normalised phone (E.164, Pakistan by default), so earlier enquiries by the same person appear on the lead and repeats are flagged as duplicates.
+- Lead lists, tasks and the dashboard respect the role's data scope (own, team, reporting line, all).
 
 ## Setup and run (Windows)
 
