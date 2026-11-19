@@ -13,11 +13,16 @@ from app.core.database import DbSession
 from app.dependencies import CurrentUserDep, RequirePermission
 from app.schemas.common import ErrorResponse
 from app.schemas.settings import (
+    DuplicateRules,
+    DuplicateRulesUpdate,
     LabelIn,
     LabelOut,
     LeadStatusCreate,
     LeadStatusOut,
     LeadStatusUpdate,
+    MarketCreate,
+    MarketOut,
+    MarketUpdate,
     OrganizationOut,
     OrganizationRules,
     OrganizationRulesUpdate,
@@ -200,6 +205,77 @@ async def delete_label(
     """Delete a label; it is removed from every lead."""
     await settings_service.delete_label(session, request, current, label_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# Markets --------------------------------------------------------------------------------
+
+
+@router.get("/markets", response_model=list[MarketOut])
+async def list_markets(current: CurrentUserDep, session: DbSession) -> list[MarketOut]:
+    """Campaign markets (fixed list, edited in Customizations)."""
+    return [
+        MarketOut.model_validate(m) for m in await settings_service.list_markets(session, current)
+    ]
+
+
+@router.post(
+    "/markets",
+    response_model=MarketOut,
+    status_code=status.HTTP_201_CREATED,
+    responses=ERRORS,
+    dependencies=[RequirePermission(CUSTOMIZE, "create")],
+)
+async def create_market(
+    body: MarketCreate, request: Request, current: CurrentUserDep, session: DbSession
+) -> MarketOut:
+    """Add a market."""
+    return MarketOut.model_validate(
+        await settings_service.create_market(session, request, current, body)
+    )
+
+
+@router.patch(
+    "/markets/{market_id}",
+    response_model=MarketOut,
+    responses=ERRORS,
+    dependencies=[RequirePermission(CUSTOMIZE, "edit")],
+)
+async def update_market(
+    market_id: uuid.UUID,
+    body: MarketUpdate,
+    request: Request,
+    current: CurrentUserDep,
+    session: DbSession,
+) -> MarketOut:
+    """Rename or (de)activate a market."""
+    market = await settings_service.update_market(session, request, current, market_id, body)
+    return MarketOut.model_validate(market)
+
+
+# Duplicate rules ------------------------------------------------------------------------
+
+
+@router.get(
+    "/duplicates",
+    response_model=DuplicateRules,
+    dependencies=[RequirePermission("settings.duplicates", "view")],
+)
+async def get_duplicate_rules(current: CurrentUserDep, session: DbSession) -> DuplicateRules:
+    """How repeat enquiries are blocked and who receives them."""
+    return await settings_service.get_duplicate_rules(session, current)
+
+
+@router.patch(
+    "/duplicates",
+    response_model=DuplicateRules,
+    responses=ERRORS,
+    dependencies=[RequirePermission("settings.duplicates", "edit")],
+)
+async def update_duplicate_rules(
+    body: DuplicateRulesUpdate, request: Request, current: CurrentUserDep, session: DbSession
+) -> DuplicateRules:
+    """Change the duplicate rules (send only what changes)."""
+    return await settings_service.update_duplicate_rules(session, request, current, body)
 
 
 # Programmes -----------------------------------------------------------------------------

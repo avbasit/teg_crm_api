@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     )
     organization_slug: str = "teg"
     api_prefix: str = "/api/v1"
+    public_api_url: str | None = None
+    """Public origin of this API for the website-form snippet; defaults to the request's."""
 
     # Sessions (opaque token in an httpOnly cookie; see ADR 0003)
     session_cookie_name: str = "teg_session"

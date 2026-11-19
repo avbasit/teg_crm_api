@@ -96,6 +96,7 @@ class Enquiry(BaseModel):
     owner: str | None
     created_at: datetime
     visible: bool = Field(description="False when outside your scope (shown without a link).")
+    full_name: str | None = None
 
 
 class LeadDetail(LeadListItem):
@@ -115,6 +116,9 @@ class LeadDetail(LeadListItem):
     first_contacted_at: datetime | None
     response_time_seconds: int | None
     other_enquiries: list[Enquiry]
+    duplicate_of: Enquiry | None = Field(
+        default=None, description="The person's first enquiry, when this lead is a duplicate."
+    )
 
 
 class LeadCreate(BaseModel):

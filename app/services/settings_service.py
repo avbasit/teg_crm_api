@@ -1,4 +1,4 @@
-"""Organisation profile and customizations (statuses, labels, programmes)."""
+"""Organisation profile, customizations (statuses, labels, markets, programmes), duplicate rules."""
 
 import uuid
 from typing import Any
@@ -10,13 +10,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import conflict, forbidden, invalid, not_found
-from app.models.configuration import Label, LeadStatus, Program
+from app.models.configuration import Label, LeadStatus, Market, Program
 from app.models.organization import Organization
 from app.repositories.audit_repository import add_audit_log, diff
 from app.schemas.settings import (
+    DuplicateRules,
+    DuplicateRulesUpdate,
     LabelIn,
     LeadStatusCreate,
     LeadStatusUpdate,
+    MarketCreate,
+    MarketUpdate,
     OrganizationRules,
     OrganizationRulesUpdate,
     OrganizationUpdate,
@@ -24,6 +28,7 @@ from app.schemas.settings import (
     ProgramUpdate,
 )
 from app.services.access import CurrentUser
+from app.services.intake_service import read_duplicate_rules, write_duplicate_rules
 
 
 async def _flush(session: AsyncSession, duplicate_message: str) -> None:
@@ -343,6 +348,106 @@ async def delete_label(
         changes=changes,
         duplicate_message="Couldn't delete the label.",
     )
+
+
+# --- Markets ------------------------------------------------------------------------
+
+_MARKET_FIELDS = ["name", "is_active"]
+
+
+async def list_markets(session: AsyncSession, current: CurrentUser) -> list[Market]:
+    """Markets in their display order."""
+    return list(
+        await session.scalars(
+            select(Market)
+            .where(Market.organization_id == current.organization_id)
+            .order_by(Market.sort_order, Market.name)
+        )
+    )
+
+
+async def create_market(
+    session: AsyncSession, request: Request, current: CurrentUser, data: MarketCreate
+) -> Market:
+    """Add a market at the end of the list."""
+    last = await session.scalar(
+        select(func.max(Market.sort_order)).where(Market.organization_id == current.organization_id)
+    )
+    market = Market(
+        organization_id=current.organization_id, name=data.name.strip(), sort_order=(last or 0) + 1
+    )
+    session.add(market)
+    await _flush(session, "A market with that name already exists.")
+    await _save(
+        session,
+        request,
+        current,
+        entity_type="market",
+        entity_id=market.id,
+        action="create",
+        changes=diff({}, {"name": market.name}),
+        duplicate_message="A market with that name already exists.",
+    )
+    return market
+
+
+async def update_market(
+    session: AsyncSession,
+    request: Request,
+    current: CurrentUser,
+    market_id: uuid.UUID,
+    data: MarketUpdate,
+) -> Market:
+    """Rename or (de)activate a market."""
+    market = await session.get(Market, market_id)
+    if market is None or market.organization_id != current.organization_id:
+        raise not_found("Market")
+    before = _fields(market, _MARKET_FIELDS)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        if value is None:
+            raise invalid("required", f"{field} can't be empty.")
+        setattr(market, field, value.strip() if isinstance(value, str) else value)
+    await _save(
+        session,
+        request,
+        current,
+        entity_type="market",
+        entity_id=market.id,
+        action="update",
+        changes=diff(before, _fields(market, _MARKET_FIELDS)),
+        duplicate_message="A market with that name already exists.",
+    )
+    await session.refresh(market)
+    return market
+
+
+# --- Duplicate rules ----------------------------------------------------------------
+
+
+async def get_duplicate_rules(session: AsyncSession, current: CurrentUser) -> DuplicateRules:
+    """Settings › Duplicate Rules."""
+    return read_duplicate_rules(await get_organization(session, current))
+
+
+async def update_duplicate_rules(
+    session: AsyncSession, request: Request, current: CurrentUser, data: DuplicateRulesUpdate
+) -> DuplicateRules:
+    """Change how repeat enquiries are blocked and routed."""
+    org = await get_organization(session, current)
+    before = read_duplicate_rules(org)
+    after = before.model_copy(update=data.model_dump(exclude_unset=True, exclude_none=True))
+    write_duplicate_rules(org, after)
+    await _save(
+        session,
+        request,
+        current,
+        entity_type="organization",
+        entity_id=org.id,
+        action="duplicate_rules_update",
+        changes=diff(before.model_dump(), after.model_dump()),
+        duplicate_message="Couldn't save the rules.",
+    )
+    return read_duplicate_rules(org)
 
 
 # --- Programmes ---------------------------------------------------------------------

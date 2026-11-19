@@ -33,9 +33,11 @@ async def test_login_sets_session_and_returns_rights_and_menus(client, make_user
     assert body["user"]["role"]["key"] == "super_admin"
     assert body["permissions"]["users"]["create"] is True
     top_level = [m["key"] for m in body["menus"]]
-    expected = {"dashboard", "leads", "tasks", "users", "teams", "settings", "account"}
+    expected = {"dashboard", "leads", "tasks", "campaigns", "users", "teams", "settings", "account"}
     assert expected <= set(top_level)
-    assert "campaigns" not in top_level  # screens from later phases stay hidden
+    settings = next(m for m in body["menus"] if m["key"] == "settings")
+    children = {c["key"] for c in settings["children"]}
+    assert "settings.integrations" not in children  # screens from later phases stay hidden
     assert "teg_session" in client.cookies
 
     me = await client.get("/api/v1/auth/me")
@@ -356,41 +358,52 @@ async def test_agents_can_read_lookups_but_not_change_them(client, make_user):
 
 # --- Phase 1 acceptance: each role sees exactly the screens in the rights table ----------
 
-# Phase 1 screens (is_available) a role can VIEW, per docs/roles-and-permissions.md Â§4.
-PHASE2_MENUS = {"dashboard": ["dashboard.pipeline"], "leads": ["leads.all"], "tasks": []}
+# Screens built so far (is_available) a role can VIEW, per docs/roles-and-permissions.md §4.
+# Every role gets the Overview, My Tasks and My Account (Phases 1-2).
+COMMON = {"dashboard": ["dashboard.pipeline"], "tasks": [], "account": []}
+ADMIN_SETTINGS = [
+    "settings.organization",
+    "settings.customizations",
+    "settings.roles",
+    "settings.duplicates",
+    "settings.audit_log",
+]
+ALL_LEADS = ["leads.all", "leads.unassigned", "leads.duplicates", "leads.import"]
 
 EXPECTED_MENUS = {
     "super_admin": {
+        "leads": ALL_LEADS,
+        "campaigns": [],
         "users": [],
         "teams": [],
-        "account": [],
-        "settings": [
-            "settings.organization",
-            "settings.customizations",
-            "settings.roles",
-            "settings.audit_log",
-        ],
+        "settings": ADMIN_SETTINGS,
     },
     "administrator": {
+        "leads": ALL_LEADS,
+        "campaigns": [],
         "users": [],
         "teams": [],
-        "account": [],
-        "settings": [
-            "settings.organization",
-            "settings.customizations",
-            "settings.roles",
-            "settings.audit_log",
-        ],
+        "settings": ADMIN_SETTINGS,
     },
     "head_of_sales": {
+        "leads": ALL_LEADS,
+        "campaigns": [],
         "users": [],
         "teams": [],
-        "account": [],
+        "settings": ["settings.customizations", "settings.duplicates"],
+    },
+    "marketing_manager": {
+        "leads": ["leads.all", "leads.duplicates", "leads.import"],
+        "campaigns": [],
         "settings": ["settings.customizations"],
     },
-    "marketing_manager": {"account": [], "settings": ["settings.customizations"]},
-    "sales_manager": {"users": [], "teams": [], "account": []},
-    "agent": {"account": []},
+    "sales_manager": {
+        "leads": ["leads.all", "leads.unassigned", "leads.duplicates"],
+        "campaigns": [],
+        "users": [],
+        "teams": [],
+    },
+    "agent": {"leads": ["leads.all"]},
 }
 
 
@@ -398,7 +411,7 @@ EXPECTED_MENUS = {
 async def test_each_role_sees_exactly_its_menus(client, make_user, role_key):
     body = await sign_in(client, await make_user(role_key))
     menus = {m["key"]: [c["key"] for c in m["children"]] for m in body["menus"]}
-    assert menus == {**PHASE2_MENUS, **EXPECTED_MENUS[role_key]}
+    assert menus == {**COMMON, **EXPECTED_MENUS[role_key]}
 
 
 # --- My Account, rules, counts ----------------------------------------------------------

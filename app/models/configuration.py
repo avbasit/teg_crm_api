@@ -1,4 +1,4 @@
-"""Admin-editable lookups: lead statuses, labels, programmes."""
+"""Admin-editable lookups: lead statuses, labels, markets, programmes."""
 
 import uuid
 
@@ -39,6 +39,31 @@ class Label(UuidPrimaryKeyMixin, TimestampMixin, Base):
     )
     name: Mapped[str] = mapped_column(CITEXT)
     color: Mapped[str] = mapped_column(Text)
+
+
+class Market(UuidPrimaryKeyMixin, TimestampMixin, Base):
+    """Target market for campaigns (Lahore, Islamabad, Doha...)."""
+
+    __tablename__ = "markets"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id")
+    )
+    name: Mapped[str] = mapped_column(CITEXT)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(SmallInteger, default=0)
+
+
+class FormFieldAlias(Base):
+    """Maps a raw form question key (normalised) to a lead column."""
+
+    __tablename__ = "form_field_aliases"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id"), primary_key=True
+    )
+    raw_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    canonical_field: Mapped[str] = mapped_column(Text)
 
 
 class Program(UuidPrimaryKeyMixin, TimestampMixin, Base):

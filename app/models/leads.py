@@ -1,4 +1,4 @@
-"""Campaigns (read side), contacts, leads, labels on leads, activities, tasks, assignments.
+"""Campaigns and their agents, contacts, leads, labels on leads, activities, tasks, assignments.
 
 Columns mirror migration 0001 §4-6. Only columns the API uses are mapped; the
 rest keep their database defaults.
@@ -24,7 +24,7 @@ from sqlalchemy.dialects.postgresql import CITEXT, ENUM, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UuidPrimaryKeyMixin
-from app.models.configuration import Label, LeadStatus
+from app.models.configuration import Label, LeadStatus, Market, Program
 from app.models.identity import User
 
 LEAD_SOURCES = (
@@ -51,7 +51,7 @@ CampaignStatusType = ENUM(
 
 
 class Campaign(UuidPrimaryKeyMixin, TimestampMixin, Base):
-    """Lead container per source (managed in Phase 3; read here for filters)."""
+    """Lead container per source/channel; leads are shared out by its round-robin."""
 
     __tablename__ = "campaigns"
 
@@ -61,9 +61,42 @@ class Campaign(UuidPrimaryKeyMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(LeadSourceType)
     campaign_type: Mapped[str] = mapped_column(CampaignTypeType)
-    status: Mapped[str] = mapped_column(CampaignStatusType)
+    program_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("programs.id")
+    )
+    market_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("markets.id")
+    )
+    status: Mapped[str] = mapped_column(CampaignStatusType, default="active")
+    assignment_strategy: Mapped[str] = mapped_column(Text, default="round_robin")
+    last_lead_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id")
+    )
     legacy_jaldi_name: Mapped[str | None] = mapped_column(Text)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    program: Mapped[Program | None] = relationship(lazy="joined")
+    market: Mapped[Market | None] = relationship(lazy="joined")
+
+
+class CampaignAgent(Base):
+    """An agent in a campaign's round-robin; ``is_active`` = receiving leads now."""
+
+    __tablename__ = "campaign_agents"
+
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    rr_position: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped[User] = relationship(lazy="joined")
 
 
 class Contact(UuidPrimaryKeyMixin, TimestampMixin, Base):

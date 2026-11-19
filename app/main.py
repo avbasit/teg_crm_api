@@ -13,8 +13,11 @@ from app.core.errors import register_error_handlers
 from app.routers import (
     audit_logs,
     auth,
+    campaigns,
     dashboard,
     health,
+    imports,
+    intake,
     leads,
     organization,
     roles,
@@ -28,7 +31,7 @@ from app.routers import (
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 # Only POST can be sent cross-site by a plain HTML form; PUT/PATCH/DELETE from another
-# origin always need a CORS preflight, which this API never grants.
+# origin always need a CORS preflight, which this API grants only for `/intake`.
 _FORM_METHODS = {"POST"}
 
 
@@ -58,6 +61,9 @@ def create_app() -> FastAPI:
         dashboard,
         leads,
         tasks,
+        campaigns,
+        imports,
+        intake,
         users,
         roles,
         teams,
@@ -66,6 +72,7 @@ def create_app() -> FastAPI:
     ):
         app.include_router(module.router, prefix=prefix)
     register_error_handlers(app)
+    intake_path = f"{prefix}/intake/"
 
     @app.middleware("http")
     async def require_json_for_writes(
@@ -74,8 +81,8 @@ def create_app() -> FastAPI:
         """CSRF guard: POST requests must be JSON.
 
         Browsers can't send `application/json` cross-site without a CORS preflight,
-        and this API allows no cross-origin requests, so a forged form post from
-        another site is rejected before it reaches any route.
+        and this API allows cross-origin requests only to the cookie-less `/intake`
+        endpoint, so a forged form post from another site never reaches a signed-in route.
         """
         content_type = request.headers.get("content-type", "")
         if request.method in _FORM_METHODS and not content_type.startswith("application/json"):
@@ -87,6 +94,30 @@ def create_app() -> FastAPI:
                 },
             )
         return await call_next(request)
+
+    @app.middleware("http")
+    async def open_cors_for_intake(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Let website forms on other sites post leads to `/intake/*` (and nothing else).
+
+        No cookies are accepted cross-site (no `Allow-Credentials`); the website key
+        authenticates the request, and a key can be limited to named sites.
+        """
+        if not request.url.path.startswith(intake_path):
+            return await call_next(request)
+        cors = {
+            "Access-Control-Allow-Origin": request.headers.get("origin") or "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, X-Api-Key",
+            "Access-Control-Max-Age": "86400",
+            "Vary": "Origin",
+        }
+        if request.method == "OPTIONS":
+            return Response(status_code=status.HTTP_204_NO_CONTENT, headers=cors)
+        response = await call_next(request)
+        response.headers.update(cors)
+        return response
 
     @app.exception_handler(DatabaseNotConfiguredError)
     async def database_not_configured(_: Request, exc: DatabaseNotConfiguredError) -> JSONResponse:

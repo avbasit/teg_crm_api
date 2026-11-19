@@ -15,11 +15,12 @@ from fastapi import Request
 from sqlalchemy import Select, and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import forbidden, invalid, not_found
+from app.core.errors import conflict, forbidden, invalid, not_found
 from app.core.phone import normalise_phone
 from app.models.configuration import Label, LeadStatus
 from app.models.identity import User
-from app.models.leads import Activity, Campaign, Contact, Lead, LeadAssignment, LeadLabel, Task
+from app.models.leads import Activity, Campaign, Lead, LeadAssignment, LeadLabel, Task
+from app.models.organization import Organization
 from app.repositories.audit_repository import add_audit_log, diff
 from app.schemas.leads import (
     CALL_OUTCOMES,
@@ -41,6 +42,7 @@ from app.schemas.leads import (
     TaskUpdate,
 )
 from app.schemas.users import UserRef
+from app.services import intake_service
 from app.services.access import CurrentUser, visible_user_ids
 
 MENU = "leads.all"
@@ -65,10 +67,17 @@ async def lead_scope(session: AsyncSession, current: CurrentUser) -> set[uuid.UU
 
 
 def scoped(query: Select[Any], current: CurrentUser, owners: set[uuid.UUID] | None) -> Select[Any]:
-    """Restrict a lead query to the organisation, non-deleted rows and the caller's scope."""
+    """Restrict a lead query to the organisation, non-deleted rows and the caller's scope.
+
+    Unassigned leads are visible to everyone who can assign leads, so managers can
+    hand them out from the Unassigned list (decision 19 Nov 2026).
+    """
     query = query.where(Lead.organization_id == current.organization_id, Lead.deleted_at.is_(None))
     if owners is not None:
-        query = query.where(Lead.owner_user_id.in_(owners))  # unassigned leads: 'all' scope only
+        if current.can(MENU, "assign"):
+            query = query.where(or_(Lead.owner_user_id.in_(owners), Lead.owner_user_id.is_(None)))
+        else:
+            query = query.where(Lead.owner_user_id.in_(owners))
     return query
 
 
@@ -177,6 +186,7 @@ def to_list_item(lead: Lead, now: datetime) -> LeadListItem:
 async def to_detail(session: AsyncSession, current: CurrentUser, lead: Lead) -> LeadDetail:
     """Drawer view, including the same person's other enquiries."""
     others: list[Enquiry] = []
+    duplicate_of: Enquiry | None = None
     if lead.contact_id:
         owners = await lead_scope(session, current)
         rows = (
@@ -199,10 +209,14 @@ async def to_detail(session: AsyncSession, current: CurrentUser, lead: Lead) -> 
                 status_color=other.status.color,
                 owner=other.owner.full_name if other.owner else None,
                 created_at=other.created_at,
-                visible=owners is None or other.owner_user_id in owners,
+                visible=owners is None
+                or other.owner_user_id in owners
+                or (other.owner_user_id is None and current.can(MENU, "assign")),
+                full_name=other.full_name,
             )
             for other in rows
         ]
+        duplicate_of = next((e for e in others if e.id == lead.duplicate_of_lead_id), None)
     item = to_list_item(lead, now_utc())
     return LeadDetail(
         **item.model_dump(),
@@ -220,6 +234,7 @@ async def to_detail(session: AsyncSession, current: CurrentUser, lead: Lead) -> 
         first_contacted_at=lead.first_contacted_at,
         response_time_seconds=lead.response_time_seconds,
         other_enquiries=others,
+        duplicate_of=duplicate_of,
     )
 
 
@@ -302,43 +317,6 @@ async def _refresh_next_task(session: AsyncSession, lead_id: uuid.UUID) -> None:
     await session.execute(update(Lead).where(Lead.id == lead_id).values(next_task_due_at=earliest))
 
 
-async def _link_contact(session: AsyncSession, lead: Lead) -> None:
-    """Attach the lead to its person (by phone, then email); flag repeat enquiries."""
-    conditions = []
-    if lead.phone_e164:
-        conditions.append(Contact.phone_e164 == lead.phone_e164)
-    if lead.email:
-        conditions.append(Contact.email == lead.email)
-    contact = None
-    if conditions:
-        contact = await session.scalar(
-            select(Contact)
-            .where(Contact.organization_id == lead.organization_id, or_(*conditions))
-            .order_by(Contact.created_at)
-            .limit(1)
-        )
-    if contact is None:
-        contact = Contact(
-            organization_id=lead.organization_id,
-            full_name=f"{lead.first_name} {lead.last_name or ''}".strip(),
-            phone_e164=lead.phone_e164,
-            email=lead.email,
-        )
-        session.add(contact)
-        await session.flush()
-    else:
-        first = await session.scalar(
-            select(Lead.id)
-            .where(Lead.contact_id == contact.id, Lead.deleted_at.is_(None))
-            .order_by(Lead.created_at)
-            .limit(1)
-        )
-        if first is not None:
-            lead.is_duplicate = True
-            lead.duplicate_of_lead_id = first
-    lead.contact_id = contact.id
-
-
 def _set_phone(lead: Lead, value: str | None) -> None:
     phone = normalise_phone(value)
     lead.phone_raw = phone.raw if phone else None
@@ -380,10 +358,27 @@ async def create_lead(
         form_answers={},
     )
     _set_phone(lead, data.phone)
-    await _link_contact(session, lead)
+    contact = await intake_service.find_contact(
+        session, current.organization_id, lead.phone_e164, lead.email
+    )
+    earlier = await intake_service.earlier_leads(session, contact.id) if contact else []
+    if earlier:
+        org = await session.get(Organization, current.organization_id)
+        rules = intake_service.read_duplicate_rules(org) if org else None
+        if rules and rules.manual_prevent_global:
+            raise conflict("duplicate_lead", "This person is already in the CRM.")
+        if (
+            rules
+            and rules.manual_block_same_agent
+            and any(e.owner_user_id == owner_id for e in earlier)
+        ):
+            raise conflict("duplicate_lead", "This person is already one of your leads.")
+    original = await intake_service.link_contact(session, lead, contact, earlier)
     session.add(lead)
     await session.flush()
     _add_activity(session, current, lead, "lead_added", when=now, meta={"source": "manual"})
+    if original is not None:
+        session.add(intake_service.duplicate_activity(lead, original, now))
     _add_activity(session, None, lead, "assigned", when=now, meta={"to": str(owner_id)})
     session.add(
         LeadAssignment(

@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -156,6 +156,77 @@ class ProgramUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     country: str | None = Field(default=None, max_length=60)
     is_active: bool | None = None
+
+
+class MarketOut(ApiModel):
+    """A target market for campaigns."""
+
+    id: uuid.UUID
+    name: str
+    is_active: bool
+    sort_order: int
+
+
+class MarketCreate(BaseModel):
+    """`POST /settings/markets`."""
+
+    name: str = Field(min_length=1, max_length=60)
+
+
+class MarketUpdate(BaseModel):
+    """`PATCH /settings/markets/{id}`."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    is_active: bool | None = None
+
+
+DuplicateRouting = Literal["previous_owner", "round_robin"]
+
+
+class DuplicateRules(BaseModel):
+    """Settings › Duplicate Rules.
+
+    A person already in the CRM is matched on phone (E.164) or email. "Digital"
+    means website forms and, from Phase 5, ad platforms.
+    """
+
+    import_block_same_campaign: bool = Field(
+        default=True, description="CSV import skips a person already in the same campaign."
+    )
+    import_prevent_global: bool = Field(
+        default=False, description="CSV import skips a person already anywhere in the CRM."
+    )
+    manual_block_same_agent: bool = Field(
+        default=False, description="Adding a lead by hand is refused if you already own them."
+    )
+    manual_prevent_global: bool = Field(
+        default=False, description="Adding a lead by hand is refused if the person exists."
+    )
+    digital_block_same_campaign: bool = Field(
+        default=False, description="Website/ad leads are dropped if already in the campaign."
+    )
+    digital_prevent_global: bool = Field(
+        default=False, description="Website/ad leads are dropped if the person exists."
+    )
+    routing: DuplicateRouting = Field(
+        default="previous_owner",
+        description=(
+            "Who gets a repeat enquiry from a campaign: the owner of the person's earlier "
+            "lead if that user is active (otherwise round-robin), or always round-robin."
+        ),
+    )
+
+
+class DuplicateRulesUpdate(BaseModel):
+    """`PATCH /settings/duplicates`: send only what changes."""
+
+    import_block_same_campaign: bool | None = None
+    import_prevent_global: bool | None = None
+    manual_block_same_agent: bool | None = None
+    manual_prevent_global: bool | None = None
+    digital_block_same_campaign: bool | None = None
+    digital_prevent_global: bool | None = None
+    routing: DuplicateRouting | None = None
 
 
 class AuditLogOut(BaseModel):

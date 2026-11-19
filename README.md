@@ -39,7 +39,7 @@ tests/                               pytest; `live_db` tests run only with RUN_D
 
 All under `/api/v1`. The full contract is at `/api/v1/docs` (hidden when `APP_ENV=production`) and `/api/v1/openapi.json`.
 
-**Auth** is a session cookie (`teg_session`) set by sign-in; see [ADR 0003](https://github.com/avbasit/teg_crm/blob/main/docs/adr/0003-server-side-sessions.md). Errors return `{"detail", "code"}`. POST requests must be JSON (CSRF guard, otherwise 415); PUT, PATCH and DELETE from another site already need a CORS preflight.
+**Auth** is a session cookie (`teg_session`) set by sign-in; see [ADR 0003](https://github.com/avbasit/teg_crm/blob/main/docs/adr/0003-server-side-sessions.md). Errors return `{"detail", "code"}`. POST requests must be JSON (CSRF guard, otherwise 415); PUT, PATCH and DELETE from another site already need a CORS preflight. Cross-origin requests are allowed only to `/intake/*`, which never uses the session cookie.
 
 | Area | Endpoints | Right needed (menu · action) |
 |---|---|---|
@@ -58,6 +58,13 @@ All under `/api/v1`. The full contract is at `/api/v1/docs` (hidden when `APP_EN
 | Bulk | `POST /leads/bulk/status`, `POST /leads/bulk/labels`, `POST /leads/bulk/delete` | `leads.all` · edit / delete |
 | Tasks | `GET /tasks` (`view` = overdue/today/upcoming/completed, `mine`), `PATCH /tasks/{id}` | `tasks` · view; `leads.all` · edit |
 | Dashboard | `GET /dashboard/summary` (cards, follow-ups, recent activity, Gulf-time day) | `dashboard.pipeline` · view |
+| Campaigns | `GET /campaigns` (status tab, search, paging), `GET /campaigns/counts`, `GET /campaigns/agent-options`, `POST /campaigns`, `GET/PATCH/DELETE /campaigns/{id}`, `PATCH /campaigns/{id}/status` | `campaigns` · view/create/edit/delete |
+| Round-robin | `PUT /campaigns/{id}/agents`, `PATCH /campaigns/{id}/agents/{user_id}` (on/off) | `campaigns` · assign |
+| Website keys | `GET/POST /campaigns/{id}/api-keys`, `DELETE /campaigns/{id}/api-keys/{key_id}` (revoke; the secret is returned once) | `campaigns` · edit |
+| Website intake | `POST /intake/leads` with header `X-Api-Key` (CORS open for this path only) | a campaign's website key, no session |
+| Imports | `POST /imports`, `POST /imports/{id}/rows` (≤ 250 mapped rows per call), `POST /imports/{id}/complete`, `GET /imports`, `GET /imports/{id}`, `GET /imports/{id}/rows` (problem rows) | `leads.import` · view/create |
+| Markets | `GET /settings/markets`, `POST /settings/markets`, `PATCH /settings/markets/{id}` | reading: signed in · changing: `settings.customizations` |
+| Duplicate rules | `GET/PATCH /settings/duplicates` | `settings.duplicates` · view/edit |
 
 Rules enforced by the API (and tested):
 - New users start **invited** with a temporary password and become **active** once they set their own.
@@ -70,7 +77,10 @@ Rules enforced by the API (and tested):
 - Leads: only a **call or meeting** counts as contact. The first one sets the response time, and the status stays locked until it happens (bulk status changes skip leads not yet contacted).
 - Reassigning a lead moves its open tasks to the new owner. History is never hidden.
 - Each lead is linked to a contact by normalised phone (E.164, Pakistan by default), so earlier enquiries by the same person appear on the lead and repeats are flagged as duplicates.
-- Lead lists, tasks and the dashboard respect the role's data scope (own, team, reporting line, all).
+- Lead lists, tasks and the dashboard respect the role's data scope (own, team, reporting line, all). Unassigned leads are visible to everyone with the Assign right, so managers can hand them out.
+- Campaign leads (website, imports): a repeat enquiry goes to the person's earlier owner if that user is active, otherwise the round-robin (equal turns; agents switched off or not active are skipped). With nobody available, or a manual campaign, the lead is left unassigned. Paused campaigns still take leads; archived ones refuse them (410).
+- Duplicate rules (Jaldi's defaults): an import skips a person already in the same campaign; manual and website duplicates are kept and flagged, with a "duplicate detected" entry on the timeline.
+- Website submissions are stored in `webhook_events` before processing. A key can be limited to named sites (`Origin`). A filled `_gotcha` field is treated as spam and dropped silently. A repeated `external_id` is accepted only once.
 
 ## Setup and run (Windows)
 

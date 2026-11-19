@@ -52,10 +52,11 @@ async def db_session_factory() -> AsyncIterator[object]:
     from app.core.database import to_asyncpg_url
 
     url = os.environ.get("DATABASE_URL_UNPOOLED") or os.environ["DATABASE_URL"]
+    local = "@127.0.0.1" in url or "@localhost" in url  # throwaway test Postgres, no TLS
     engine = create_async_engine(
         to_asyncpg_url(url),
         poolclass=NullPool,
-        connect_args={"ssl": "require", "statement_cache_size": 0},
+        connect_args={"ssl": False if local else "require", "statement_cache_size": 0},
     )
     async with engine.connect() as connection:
         transaction = await connection.begin()
@@ -66,6 +67,9 @@ async def db_session_factory() -> AsyncIterator[object]:
             yield factory
         finally:
             await transaction.rollback()  # discard everything the test (and the app) wrote
+            if local:
+                # The throwaway PGlite server hangs on a graceful close; drop the socket instead.
+                await connection.invalidate()
     await engine.dispose()
 
 
