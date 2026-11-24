@@ -1,7 +1,7 @@
 """`/leads`: lead table, lead drawer, quick actions, tasks on a lead, bulk actions.
 
 Rights (menu `leads.all`): view to read; create to add; edit for details, status,
-labels, activities and tasks; assign to reassign; delete to delete; export (Phase 4).
+labels, activities and tasks; assign to reassign; delete to delete; export for CSV.
 Every query is limited to the caller's data scope (own / team / reporting line / all).
 """
 
@@ -9,10 +9,11 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy import select
 
 from app.core.database import DbSession
+from app.core.errors import invalid
 from app.dependencies import CurrentUserDep, RequirePermission
 from app.models.leads import Campaign
 from app.repositories import lead_repository
@@ -46,10 +47,7 @@ VIEW = RequirePermission("leads.all", "view")
 EDIT = RequirePermission("leads.all", "edit")
 
 
-@router.get("", response_model=Page[LeadListItem], dependencies=[VIEW])
-async def list_leads(
-    current: CurrentUserDep,
-    session: DbSession,
+def lead_filters(
     search: Annotated[str | None, Query(max_length=100)] = None,
     status_id: Annotated[list[uuid.UUID], Query()] = [],  # noqa: B006 - FastAPI query list
     label_id: Annotated[list[uuid.UUID], Query()] = [],  # noqa: B006
@@ -64,17 +62,17 @@ async def list_leads(
     calls_max: Annotated[int | None, Query(ge=0)] = None,
     duplicates: bool | None = None,
     contacted: bool | None = None,
-    sort: SortKey = "created_at",
-    order: Literal["asc", "desc"] = "desc",
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    offset: Annotated[int, Query(ge=0)] = 0,
-) -> Page[LeadListItem]:
-    """The lead table: filter, search, sort and page through leads in your scope."""
+) -> LeadFilters:
+    """The lead table's filters (shared by the list and the CSV export)."""
     for value in owner_id:
         if value != lead_repository.UNASSIGNED:
-            uuid.UUID(value)  # 422 on junk via FastAPI's handler below
-    owners = await lead_service.lead_scope(session, current)
-    filters = LeadFilters(
+            try:
+                uuid.UUID(value)
+            except ValueError as exc:
+                raise invalid(
+                    "invalid_owner", "Agent filter must be a user id or 'unassigned'."
+                ) from exc
+    return LeadFilters(
         search=search,
         status_ids=status_id,
         label_ids=label_id,
@@ -90,6 +88,24 @@ async def list_leads(
         duplicates=duplicates,
         contacted=contacted,
     )
+
+
+Filters = Annotated[LeadFilters, Depends(lead_filters)]
+EXPORT_LIMIT = 50_000
+
+
+@router.get("", response_model=Page[LeadListItem], dependencies=[VIEW])
+async def list_leads(
+    current: CurrentUserDep,
+    session: DbSession,
+    filters: Filters,
+    sort: SortKey = "created_at",
+    order: Literal["asc", "desc"] = "desc",
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> Page[LeadListItem]:
+    """The lead table: filter, search, sort and page through leads in your scope."""
+    owners = await lead_service.lead_scope(session, current)
     leads, total = await lead_repository.list_leads(
         session,
         current,
@@ -106,6 +122,44 @@ async def list_leads(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get(
+    "/export",
+    response_class=Response,
+    responses={200: {"content": {"text/csv": {}}}, 422: {"model": ErrorResponse}},
+    dependencies=[RequirePermission("leads.all", "export")],
+)
+async def export_leads(
+    current: CurrentUserDep,
+    session: DbSession,
+    filters: Filters,
+    sort: SortKey = "created_at",
+    order: Literal["asc", "desc"] = "desc",
+) -> Response:
+    """Every lead matching the table's filters as CSV (up to 50,000; opens in Excel)."""
+    owners = await lead_service.lead_scope(session, current)
+    leads, total = await lead_repository.list_leads(
+        session,
+        current,
+        owners,
+        filters,
+        sort=sort,
+        descending=order == "desc",
+        limit=EXPORT_LIMIT,
+        offset=0,
+    )
+    if total > EXPORT_LIMIT:
+        raise invalid(
+            "export_too_large",
+            f"{total:,} leads match. Narrow the filters to {EXPORT_LIMIT:,} or fewer to export.",
+        )
+    stamp = lead_service.now_utc().strftime("%Y-%m-%d")
+    return Response(
+        content=lead_service.leads_csv(leads),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="teg-leads-{stamp}.csv"'},
     )
 
 

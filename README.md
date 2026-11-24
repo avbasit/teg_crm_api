@@ -65,6 +65,10 @@ All under `/api/v1`. The full contract is at `/api/v1/docs` (hidden when `APP_EN
 | Imports | `POST /imports`, `POST /imports/{id}/rows` (≤ 250 mapped rows per call), `POST /imports/{id}/complete`, `GET /imports`, `GET /imports/{id}`, `GET /imports/{id}/rows` (problem rows) | `leads.import` · view/create |
 | Markets | `GET /settings/markets`, `POST /settings/markets`, `PATCH /settings/markets/{id}` | reading: signed in · changing: `settings.customizations` |
 | Duplicate rules | `GET/PATCH /settings/duplicates` | `settings.duplicates` · view/edit |
+| Pipeline dashboard | `GET /reports/pipeline`, `GET /reports/pipeline/export` (leaderboard CSV). Filters: `date_from`, `date_to` (inclusive, org time; default last 30 days), `campaign_id`, `program_id`, `market_id`, `team_id`, `owner_id` | `dashboard.pipeline` · view / export |
+| Productivity dashboard | `GET /reports/productivity`, `GET /reports/productivity/export` (same filters) | `dashboard.productivity` · view / export |
+| Dashboard filters | `GET /reports/filters?dashboard=pipeline\|productivity` (campaigns, programmes, markets, teams, people in your scope) | that dashboard · view |
+| Lead export | `GET /leads/export` (the lead table's filters; CSV, up to 50,000 rows) | `leads.all` · export |
 
 Rules enforced by the API (and tested):
 - New users start **invited** with a temporary password and become **active** once they set their own.
@@ -80,6 +84,8 @@ Rules enforced by the API (and tested):
 - Lead lists, tasks and the dashboard respect the role's data scope (own, team, reporting line, all). Unassigned leads are visible to everyone with the Assign right, so managers can hand them out.
 - Campaign leads (website, imports): a repeat enquiry goes to the person's earlier owner if that user is active, otherwise the round-robin (equal turns; agents switched off or not active are skipped). With nobody available, or a manual campaign, the lead is left unassigned. Paused campaigns still take leads; archived ones refuse them (410).
 - Duplicate rules (Jaldi's defaults): an import skips a person already in the same campaign; manual and website duplicates are kept and flagged, with a "duplicate detected" entry on the timeline.
+- Dashboards: pipeline figures follow the leads created in the period, and their status now (MQL and won come from the status flags). Productivity follows the activity logged in the period. Every figure is a direct count, limited to the caller's scope on that dashboard; filters can narrow that scope but never widen it.
+- CSV exports are UTF-8 with a byte-order mark (Excel-friendly), and text starting with `=`, `+`, `-` or `@` is prefixed with `'`, so a lead's name can't run as a spreadsheet formula.
 - Website submissions are stored in `webhook_events` before processing. A key can be limited to named sites (`Origin`). A filled `_gotcha` field is treated as spam and dropped silently. A repeated `external_id` is accepted only once.
 
 ## Setup and run (Windows)

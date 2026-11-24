@@ -15,6 +15,7 @@ from fastapi import Request
 from sqlalchemy import Select, and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.csv_export import to_csv
 from app.core.errors import conflict, forbidden, invalid, not_found
 from app.core.phone import normalise_phone
 from app.models.configuration import Label, LeadStatus
@@ -902,6 +903,83 @@ async def bulk_labels(
             )
         await session.commit()
     return _result(len(ids), len(lead_ids) - len(ids), "Not found or outside your scope.")
+
+
+def leads_csv(leads: list[Lead]) -> str:
+    """Leads as CSV, in Jaldi's column order plus TEG CRM's extra fields."""
+    now = now_utc()
+    state = {"none": "No tasks", "due": "Due", "overdue": "Overdue"}
+
+    def when(value: datetime | None) -> str | None:
+        return value.strftime("%Y-%m-%d %H:%M UTC") if value else None
+
+    return to_csv(
+        [
+            "Lead ID",
+            "First Name",
+            "Last Name",
+            "Phone Number",
+            "Email",
+            "Notes",
+            "Status",
+            "Labels",
+            "Agent",
+            "Campaign",
+            "Last Updated",
+            "Date Created",
+            "Task Status",
+            "Next Task Due",
+            "Calls Made",
+            "Last activity",
+            "Source",
+            "Sub source",
+            "WhatsApp",
+            "City",
+            "Interested in",
+            "Budget",
+            "Duplicate",
+            "Contacted",
+            "First contacted",
+            "Response time (min)",
+            "Times assigned",
+            "Deal value",
+        ],  # fmt: skip
+        (
+            [
+                str(lead.id),
+                lead.first_name,
+                lead.last_name,
+                lead.phone_e164 or lead.phone_raw,
+                lead.email,
+                lead.notes,
+                lead.status.name,
+                ", ".join(sorted(ll.label.name for ll in lead.lead_labels)),
+                lead.owner.full_name if lead.owner else None,
+                lead.campaign.name if lead.campaign else None,
+                when(lead.updated_at),
+                when(lead.created_at),
+                state[task_state(lead, now)],
+                when(lead.next_task_due_at),
+                lead.calls_made,
+                lead.last_activity_note,
+                lead.source,
+                lead.sub_source,
+                lead.whatsapp_e164,
+                lead.city,
+                lead.country_of_interest,
+                lead.budget_text,
+                "Yes" if lead.is_duplicate else "No",
+                "Yes" if lead.first_contacted_at else "No",
+                when(lead.first_contacted_at),
+                round(lead.response_time_seconds / 60, 1)
+                if lead.response_time_seconds is not None
+                else None,
+                lead.times_assigned,
+                lead.deal_value,
+            ]
+            for lead in leads
+        ),
+    )
 
 
 def open_lead_condition() -> Any:

@@ -360,7 +360,11 @@ async def test_agents_can_read_lookups_but_not_change_them(client, make_user):
 
 # Screens built so far (is_available) a role can VIEW, per docs/roles-and-permissions.md §4.
 # Every role gets the Overview, My Tasks and My Account (Phases 1-2).
-COMMON = {"dashboard": ["dashboard.pipeline"], "tasks": [], "account": []}
+COMMON = {
+    "dashboard": ["dashboard.pipeline", "dashboard.productivity"],
+    "tasks": [],
+    "account": [],
+}
 ADMIN_SETTINGS = [
     "settings.organization",
     "settings.customizations",
