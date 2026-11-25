@@ -37,7 +37,7 @@ async def test_login_sets_session_and_returns_rights_and_menus(client, make_user
     assert expected <= set(top_level)
     settings = next(m for m in body["menus"] if m["key"] == "settings")
     children = {c["key"] for c in settings["children"]}
-    assert "settings.integrations" not in children  # screens from later phases stay hidden
+    assert "settings.integrations" in children  # Phase 5
     assert "teg_session" in client.cookies
 
     me = await client.get("/api/v1/auth/me")
@@ -370,12 +370,15 @@ ADMIN_SETTINGS = [
     "settings.customizations",
     "settings.roles",
     "settings.duplicates",
+    "settings.integrations",
     "settings.audit_log",
 ]
+MARKETING = ["dashboard.pipeline", "dashboard.productivity", "dashboard.marketing"]
 ALL_LEADS = ["leads.all", "leads.unassigned", "leads.duplicates", "leads.import"]
 
 EXPECTED_MENUS = {
     "super_admin": {
+        "dashboard": MARKETING,
         "leads": ALL_LEADS,
         "campaigns": [],
         "users": [],
@@ -383,6 +386,7 @@ EXPECTED_MENUS = {
         "settings": ADMIN_SETTINGS,
     },
     "administrator": {
+        "dashboard": MARKETING,
         "leads": ALL_LEADS,
         "campaigns": [],
         "users": [],
@@ -390,6 +394,7 @@ EXPECTED_MENUS = {
         "settings": ADMIN_SETTINGS,
     },
     "head_of_sales": {
+        "dashboard": MARKETING,
         "leads": ALL_LEADS,
         "campaigns": [],
         "users": [],
@@ -397,9 +402,10 @@ EXPECTED_MENUS = {
         "settings": ["settings.customizations", "settings.duplicates"],
     },
     "marketing_manager": {
+        "dashboard": MARKETING,
         "leads": ["leads.all", "leads.duplicates", "leads.import"],
         "campaigns": [],
-        "settings": ["settings.customizations"],
+        "settings": ["settings.customizations", "settings.integrations"],
     },
     "sales_manager": {
         "leads": ["leads.all", "leads.unassigned", "leads.duplicates"],

@@ -29,7 +29,7 @@ from app.models.identity import User
 
 LEAD_SOURCES = (
     "facebook", "tiktok", "csv", "excel", "webhook", "bayut", "dubizzle",
-    "zapier", "manual", "event", "whatsapp",
+    "zapier", "manual", "event", "whatsapp", "linkedin", "snapchat",
 )  # fmt: skip
 ACTIVITY_TYPES = (
     "lead_added", "assigned", "call", "whatsapp", "text", "email", "meeting", "comment",
@@ -196,6 +196,9 @@ class Lead(UuidPrimaryKeyMixin, TimestampMixin, Base):
     last_activity_note: Mapped[str | None] = mapped_column(Text)
     next_task_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    ad_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ads.id", ondelete="SET NULL")
+    )
     legacy_jaldi_id: Mapped[int | None] = mapped_column(BigInteger)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

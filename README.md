@@ -68,6 +68,10 @@ All under `/api/v1`. The full contract is at `/api/v1/docs` (hidden when `APP_EN
 | Pipeline dashboard | `GET /reports/pipeline`, `GET /reports/pipeline/export` (leaderboard CSV). Filters: `date_from`, `date_to` (inclusive, org time; default last 30 days), `campaign_id`, `program_id`, `market_id`, `team_id`, `owner_id` | `dashboard.pipeline` · view / export |
 | Productivity dashboard | `GET /reports/productivity`, `GET /reports/productivity/export` (same filters) | `dashboard.productivity` · view / export |
 | Dashboard filters | `GET /reports/filters?dashboard=pipeline\|productivity` (campaigns, programmes, markets, teams, people in your scope) | that dashboard · view |
+| Marketing dashboard | `GET /reports/marketing`, `GET /reports/marketing/export` (drill-down CSV), same filters | `dashboard.marketing` · view / export |
+| Integrations | `GET /integrations`, `GET /integrations/meta/connect`, `PUT /integrations/meta/selection`, `PATCH /integrations/meta/settings` (assign mode), `POST /integrations/meta/sync`, `DELETE /integrations/meta` | `settings.integrations` · view/create/edit/delete |
+| Meta webhook | `GET/POST /integrations/meta/webhook` (verify token; `X-Hub-Signature-256`), `GET /integrations/meta/callback` (OAuth, via the web domain) | Meta's signature / signed state |
+| Jobs | `GET /jobs/leads` (every 15 min), `GET /jobs/spend` (daily), called by `.github/workflows/jobs.yml` | `Authorization: Bearer $CRON_SECRET` |
 | Lead export | `GET /leads/export` (the lead table's filters; CSV, up to 50,000 rows) | `leads.all` · export |
 
 Rules enforced by the API (and tested):

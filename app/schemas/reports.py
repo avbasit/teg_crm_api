@@ -1,7 +1,7 @@
 """Phase 4 dashboards: pipeline and productivity reports, filter options."""
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -165,6 +165,64 @@ class ProductivityReport(BaseModel):
     call_outcomes: list[OutcomeCount]
     calls_by_hour: list[HourCount]
     agents: list[AgentRow]
+
+
+class MarketingKpis(BaseModel):
+    """Ad spend against the leads and deals it produced (spend in the deal currency)."""
+
+    spend: Metric
+    leads: Metric = Field(description="CRM leads from lead ads created in the period.")
+    cost_per_lead: Metric
+    qualified: Metric
+    cost_per_qualified: Metric
+    won: Metric
+    won_value: Metric
+    roas: Metric = Field(description="Won deal value ÷ spend.")
+    impressions: int
+    clicks: int
+    platform_leads: int = Field(description="Leads as Meta counts them (for comparison).")
+
+
+class MarketingDay(BaseModel):
+    """Spend and new leads on one day."""
+
+    day: date
+    spend: float
+    leads: int
+
+
+class AdRow(BaseModel):
+    """One line of the Campaign › Ad set › Ad drill-down."""
+
+    level: str = Field(description="campaign, adset or ad")
+    id: uuid.UUID
+    parent_id: uuid.UUID | None
+    name: str
+    crm_campaign_id: uuid.UUID | None = None
+    spend: float
+    impressions: int
+    clicks: int
+    platform_leads: int
+    leads: int
+    qualified: int
+    won: int
+    won_value: float
+    cost_per_lead: float | None
+    roas: float | None
+
+
+class MarketingReport(BaseModel):
+    """`GET /reports/marketing`."""
+
+    period: Period
+    currency: str = Field(description="Deal currency; spend is converted into it.")
+    spend_currencies: list[str]
+    missing_rates: list[str] = Field(description="Spend currencies with no conversion rate set.")
+    connected: bool
+    last_spend_sync_at: datetime | None
+    kpis: MarketingKpis
+    daily: list[MarketingDay]
+    rows: list[AdRow]
 
 
 class FilterOption(BaseModel):

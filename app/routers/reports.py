@@ -17,13 +17,19 @@ from app.core.errors import forbidden, invalid
 from app.dependencies import CurrentUserDep, RequirePermission
 from app.models.organization import Organization
 from app.schemas.common import ErrorResponse
-from app.schemas.reports import PipelineReport, ProductivityReport, ReportFilterOptions
-from app.services import report_service
+from app.schemas.reports import (
+    MarketingReport,
+    PipelineReport,
+    ProductivityReport,
+    ReportFilterOptions,
+)
+from app.services import marketing_service, report_service
 from app.services.lead_service import now_utc
 from app.services.report_service import PIPELINE, PRODUCTIVITY, ReportFilters
 
 router = APIRouter(prefix="/reports", tags=["reports"], responses={403: {"model": ErrorResponse}})
 ERRORS = {422: {"model": ErrorResponse}}
+MARKETING = "dashboard.marketing"
 DEFAULT_DAYS = 30
 
 
@@ -74,10 +80,10 @@ def _csv(text: str, name: str, filters: ReportFilters) -> Response:
 async def filter_options(
     current: CurrentUserDep,
     session: DbSession,
-    dashboard: Literal["pipeline", "productivity"] = "pipeline",
+    dashboard: Literal["pipeline", "productivity", "marketing"] = "pipeline",
 ) -> ReportFilterOptions:
     """Choices for the dashboard filters, limited to what you may see."""
-    menu = PIPELINE if dashboard == "pipeline" else PRODUCTIVITY
+    menu = {"pipeline": PIPELINE, "productivity": PRODUCTIVITY, "marketing": MARKETING}[dashboard]
     if not current.can(menu, "view"):
         raise forbidden()
     return await report_service.filter_options(session, current, menu)
@@ -133,3 +139,30 @@ async def export_productivity(
     """The per-person productivity table as CSV (opens in Excel)."""
     report = await report_service.productivity(session, current, filters)
     return _csv(report_service.productivity_csv(report), "productivity", filters)
+
+
+@router.get(
+    "/marketing",
+    response_model=MarketingReport,
+    responses=ERRORS,
+    dependencies=[RequirePermission(MARKETING, "view")],
+)
+async def marketing(
+    current: CurrentUserDep, session: DbSession, filters: Filters
+) -> MarketingReport:
+    """Marketing dashboard: spend, cost per lead and per MQL, ROAS, ad drill-down."""
+    return await marketing_service.marketing(session, current, filters)
+
+
+@router.get(
+    "/marketing/export",
+    response_class=Response,
+    responses={200: {"content": {"text/csv": {}}}, **ERRORS},
+    dependencies=[RequirePermission(MARKETING, "export")],
+)
+async def export_marketing(
+    current: CurrentUserDep, session: DbSession, filters: Filters
+) -> Response:
+    """The Campaign › Ad set › Ad drill-down as CSV."""
+    report = await marketing_service.marketing(session, current, filters)
+    return _csv(marketing_service.marketing_csv(report), "marketing", filters)

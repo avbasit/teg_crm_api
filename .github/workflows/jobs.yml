@@ -1,0 +1,35 @@
+name: Scheduled jobs
+
+# Vercel's free plan allows cron only once a day, so the schedules live here.
+# Needs repository secret CRON_SECRET (same value as the API's CRON_SECRET on Vercel).
+# Until it is set, the jobs are skipped instead of failing.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *" # catch any lead a platform webhook missed
+    - cron: "30 0 * * *" # 04:30 Gulf time: sync yesterday's and today's ad spend
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Job to run now"
+        type: choice
+        options: [leads, spend]
+        default: leads
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the API
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          JOB: ${{ github.event.inputs.job || (github.event.schedule == '30 0 * * *' && 'spend' || 'leads') }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET is not set yet; skipping."
+            exit 0
+          fi
+          curl --fail-with-body --silent --show-error --max-time 240 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://tegcrmapi.vercel.app/api/v1/jobs/$JOB"

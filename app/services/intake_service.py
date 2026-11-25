@@ -234,6 +234,10 @@ class Incoming:
     external_lead_id: str | None = None
     source_created_at: datetime | None = None
     source_form_name: str | None = None
+    source_campaign_name: str | None = None
+    source_adset_name: str | None = None
+    source_ad_name: str | None = None
+    ad_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -413,6 +417,10 @@ class Ingestor:
             external_lead_id=_clean(incoming.external_lead_id),
             source_created_at=incoming.source_created_at,
             source_form_name=_clean(incoming.source_form_name),
+            source_campaign_name=_clean(incoming.source_campaign_name),
+            source_adset_name=_clean(incoming.source_adset_name),
+            source_ad_name=_clean(incoming.source_ad_name),
+            ad_id=incoming.ad_id,
             times_assigned=0,
         )
         original = await link_contact(self.session, lead, contact, earlier)

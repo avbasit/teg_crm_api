@@ -40,6 +40,30 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     public_api_url: str | None = None
     """Public origin of this API for the website-form snippet; defaults to the request's."""
+    public_web_url: str = "https://tegcrm.vercel.app"
+    """The web app. OAuth callbacks go through it so the session cookie is present."""
+
+    # Ad platform integrations (Phase 5). Secrets live only in Vercel / .env.
+    meta_app_id: str | None = None
+    meta_app_secret: str | None = None
+    meta_config_id: str | None = None
+    """Facebook Login for Business configuration (the permissions TEG CRM asks for)."""
+    meta_webhook_verify_token: str | None = None
+    meta_graph_version: str = "v23.0"
+    integrations_secret_key: str | None = None
+    """Encrypts platform tokens at rest; losing it means reconnecting the platforms."""
+    cron_secret: str | None = None
+    """Bearer token GitHub Actions sends to /jobs/*."""
+
+    @property
+    def meta_configured(self) -> bool:
+        """Whether the Meta app's settings are present."""
+        return bool(
+            self.meta_app_id
+            and self.meta_app_secret
+            and self.meta_webhook_verify_token
+            and self.integrations_secret_key
+        )
 
     # Sessions (opaque token in an httpOnly cookie; see ADR 0003)
     session_cookie_name: str = "teg_session"

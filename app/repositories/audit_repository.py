@@ -1,7 +1,8 @@
 """Writes to the append-only ``audit_logs`` and ``auth_events`` tables."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from fastapi import Request
@@ -13,8 +14,11 @@ from app.models.logs import AuditLog, AuthEvent
 
 
 def _jsonable(value: Any) -> Any:
-    if isinstance(value, uuid.UUID | datetime):
-        return str(value)
+    """Values that JSON can't store as-is (ids, dates, money) become strings or numbers."""
+    if isinstance(value, uuid.UUID | datetime | date):
+        return str(value) if not isinstance(value, datetime) else value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
     return value
 
 
