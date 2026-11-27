@@ -81,6 +81,51 @@ class SyncIn(BaseModel):
     what: Literal["leads", "spend"]
 
 
+class LinkedTo(BaseModel):
+    """The CRM campaign an ad campaign / ad set / ad currently feeds."""
+
+    id: uuid.UUID
+    name: str
+
+
+class AdNode(BaseModel):
+    """One item when browsing Meta: an ad campaign, ad set or ad."""
+
+    external_id: str
+    name: str
+    status: str | None = Field(description="Meta's effective status, e.g. ACTIVE, PAUSED.")
+    linked_to: LinkedTo | None = None
+
+
+AdLevel = Literal["campaign", "adset", "ad"]
+
+
+class AdLinkIn(BaseModel):
+    """One link from a CRM campaign to Meta (most specific level wins when routing)."""
+
+    level: AdLevel
+    ad_account_id: uuid.UUID
+    campaign_id: str = Field(description="Meta ad campaign id")
+    campaign_name: str = Field(max_length=300)
+    adset_id: str | None = None
+    adset_name: str | None = Field(default=None, max_length=300)
+    ad_id: str | None = None
+    ad_name: str | None = Field(default=None, max_length=300)
+
+
+class AdLinkOut(AdLinkIn):
+    """A saved link, with how many leads it brought in the last 30 days."""
+
+    ad_account_name: str | None = None
+    leads_last_30_days: int = 0
+
+
+class AdLinksSet(BaseModel):
+    """`PUT /campaigns/{id}/meta-links`: the full list of links for the campaign."""
+
+    links: list[AdLinkIn] = Field(max_length=200)
+
+
 class SyncResult(BaseModel):
     """What a manual or scheduled sync did."""
 

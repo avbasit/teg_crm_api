@@ -78,6 +78,17 @@ class FakeMeta:
     async def insights(self, account_id: str, token: str, since: date, until: date):
         return self.insight_rows
 
+    async def children(self, parent: str, edge: str, token: str):
+        cid = self.campaign_id
+        return {
+            "campaigns": [{"id": cid, "name": "D2 Lahore Nov", "effective_status": "ACTIVE"}],
+            "adsets": [{"id": f"{cid}-set", "name": "Lahore 25-45", "effective_status": "ACTIVE"}],
+            "ads": [
+                {"id": f"{cid}-ad", "name": "Video A", "effective_status": "ACTIVE"},
+                {"id": f"{cid}-ad2", "name": "Carousel B", "effective_status": "PAUSED"},
+            ],
+        }[edge]
+
     def make_lead(self, leadgen_id: str, phone: str) -> dict:
         lead = {
             "id": leadgen_id,
@@ -319,3 +330,111 @@ async def test_jobs_catch_missed_leads_and_sync_spend_for_the_marketing_report(
     assert export.status_code == 200 and export.text.startswith("﻿Level,Name,Spend (USD)")
     await sign_in(client, await make_user("sales_manager"))  # no Marketing dashboard
     assert (await client.get("/api/v1/reports/marketing")).status_code == 403
+
+
+async def test_linked_campaigns_receive_meta_leads_most_specific_link_wins(
+    client, make_user, fake_meta
+):
+    await sign_in(client, await make_user("administrator"))
+    card = await connect(client, fake_meta)
+    account = card["ad_accounts"][0]["id"]
+
+    async def crm_campaign(name: str) -> dict:
+        made = await client.post(
+            "/api/v1/campaigns", json={"name": name, "campaign_type": "paid_social"}
+        )
+        assert made.status_code == 201, made.text
+        return made.json()
+
+    whole = await crm_campaign("Meta - Portugal D2")
+    video = await crm_campaign("Meta - D2 Video A only")
+    browse = await client.get(
+        "/api/v1/integrations/meta/browse", params={"ad_account_id": account, "level": "campaigns"}
+    )
+    [ad_campaign] = browse.json()
+    assert ad_campaign["linked_to"] is None
+    cid = ad_campaign["external_id"]
+    ads = (
+        await client.get(
+            "/api/v1/integrations/meta/browse",
+            params={"ad_account_id": account, "level": "ads", "parent": f"{cid}-set"},
+        )
+    ).json()
+    assert [a["name"] for a in ads] == ["Video A", "Carousel B"]
+
+    linked = await client.put(
+        f"/api/v1/campaigns/{whole['id']}/meta-links",
+        json={"links": [{"level": "campaign", "ad_account_id": account, "campaign_id": cid,
+                         "campaign_name": "D2 Lahore Nov"}]},
+    )  # fmt: skip
+    assert linked.status_code == 200, linked.text
+    assert [(link["level"], link["campaign_name"]) for link in linked.json()] == [
+        ("campaign", "D2 Lahore Nov")
+    ]
+    await client.put(
+        f"/api/v1/campaigns/{video['id']}/meta-links",
+        json={"links": [{"level": "ad", "ad_account_id": account, "campaign_id": cid,
+                         "campaign_name": "D2 Lahore Nov", "adset_id": f"{cid}-set",
+                         "adset_name": "Lahore 25-45", "ad_id": f"{cid}-ad",
+                         "ad_name": "Video A"}]},
+    )  # fmt: skip
+
+    fake_meta.make_lead("lg-video", phone())
+    from_carousel = fake_meta.make_lead("lg-carousel", phone())
+    from_carousel["ad_id"], from_carousel["ad_name"] = f"{cid}-ad2", "Carousel B"
+    await deliver(client, fake_meta, "lg-video")
+    await deliver(client, fake_meta, "lg-carousel")
+    assert [lead["full_name"] for lead in await leads_from(client, "Meta - D2 Video A only")] == [
+        "Usman Tariq"
+    ]
+    assert len(await leads_from(client, "Meta - Portugal D2")) == 1  # the carousel lead
+    assert await leads_from(client, "D2 Lahore Nov") == []  # no auto-created campaign
+
+    again = (
+        await client.get(
+            "/api/v1/integrations/meta/browse",
+            params={"ad_account_id": account, "level": "campaigns"},
+        )
+    ).json()
+    assert again[0]["linked_to"]["name"] == "Meta - Portugal D2"
+    links = (await client.get(f"/api/v1/campaigns/{video['id']}/meta-links")).json()
+    assert links[0]["level"] == "ad" and links[0]["leads_last_30_days"] == 1
+
+
+async def test_elementor_webhook_lands_in_the_forms_campaign(client, make_user):
+    await sign_in(client, await make_user("administrator"))
+    made = await client.post(
+        "/api/v1/campaigns", json={"name": "Website - Contact", "campaign_type": "website"}
+    )
+    campaign = made.json()
+    key = (
+        await client.post(
+            f"/api/v1/campaigns/{campaign['id']}/api-keys", json={"name": "Elementor"}
+        )
+    ).json()["key"]
+    client.cookies.clear()
+    body = {
+        "Full Name": "Sana Iqbal",
+        "Country Code": "United Arab Emirates  +971",
+        "Phone Number": f"50{random.randint(1_000_000, 9_999_999)}",
+        "Email Address": f"sana{random.randint(1, 10**6)}@example.com",
+        "Program of Interest": "Portugal",
+        "How did you hear about us?": "Instagram",
+        "Question": "Is D2 open for families?",
+        "Date": "November 27, 2026",
+        "Powered by": "Elementor",
+    }
+    sent = await client.post(f"/api/v1/intake/leads?key={key}", data=body)
+    assert sent.status_code == 200, sent.text  # Elementor needs 200
+    assert (await client.post("/api/v1/intake/leads", data=body)).status_code == 401
+    # Form posts stay blocked everywhere else (CSRF guard).
+    assert (await client.post("/api/v1/auth/login", data={"username": "x"})).status_code == 415
+
+    await sign_in(client, await make_user("administrator"))
+    [lead] = (await client.get("/api/v1/leads", params={"campaign_id": campaign["id"]})).json()[
+        "items"
+    ]
+    assert lead["phone"].startswith("+97150") and lead["sub_source"] == "Instagram"
+    assert lead["country_of_interest"] == "Portugal"
+    detail = (await client.get(f"/api/v1/leads/{lead['id']}")).json()
+    assert detail["notes"] == "Is D2 open for families?"

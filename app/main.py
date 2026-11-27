@@ -89,9 +89,18 @@ def create_app() -> FastAPI:
         Browsers can't send `application/json` cross-site without a CORS preflight,
         and this API allows cross-origin requests only to the cookie-less `/intake`
         endpoint, so a forged form post from another site never reaches a signed-in route.
+        `/intake` itself also accepts form posts (Elementor's webhook): it never reads the
+        session cookie and is authenticated by a campaign key, so there is nothing to forge.
         """
         content_type = request.headers.get("content-type", "")
-        if request.method in _FORM_METHODS and not content_type.startswith("application/json"):
+        is_intake_form = request.url.path.startswith(intake_path) and content_type.startswith(
+            "application/x-www-form-urlencoded"
+        )
+        if (
+            request.method in _FORM_METHODS
+            and not content_type.startswith("application/json")
+            and not is_intake_form
+        ):
             return JSONResponse(
                 status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
                 content={

@@ -357,6 +357,26 @@ async def _crm_campaign(
     return campaign
 
 
+async def _route(
+    session: AsyncSession, org_id: uuid.UUID, ad_campaign: AdCampaign, ad: Ad | None
+) -> Campaign:
+    """The CRM campaign for a lead: the most specific link wins (ad, ad set, ad campaign).
+
+    Links are set on Campaign › Meta ads (Jaldi's model). An ad nobody linked still
+    gets a CRM campaign (created on its first lead), so no lead is ever lost.
+    """
+    candidates: list[uuid.UUID | None] = []
+    if ad is not None:
+        ad_set = await session.get(AdSet, ad.ad_set_id)
+        candidates += [ad.crm_campaign_id, ad_set.crm_campaign_id if ad_set else None]
+    for campaign_id in candidates:
+        if campaign_id:
+            campaign = await session.get(Campaign, campaign_id)
+            if campaign is not None and campaign.deleted_at is None:
+                return campaign
+    return await _crm_campaign(session, org_id, ad_campaign)
+
+
 async def ingest_lead(
     session: AsyncSession,
     integration: Integration,
@@ -387,8 +407,8 @@ async def ingest_lead(
         ad_campaign = await _ad_campaign(
             session, org.id, "organic", "Facebook lead forms (organic)"
         )
-    campaign = await _crm_campaign(session, org.id, ad_campaign)
     ad = await _ad(session, ad_campaign, data)
+    campaign = await _route(session, org.id, ad_campaign, ad)
     answers = {
         str(field.get("name")): ", ".join(str(v) for v in field.get("values") or [])
         for field in data.get("field_data") or []

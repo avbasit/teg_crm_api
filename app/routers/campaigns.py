@@ -26,7 +26,8 @@ from app.schemas.campaigns import (
     CampaignUpdate,
 )
 from app.schemas.common import ErrorResponse, Page
-from app.services import campaign_service
+from app.schemas.integrations import AdLinkOut, AdLinksSet
+from app.services import campaign_service, meta_links
 
 router = APIRouter(
     prefix="/campaigns", tags=["campaigns"], responses={403: {"model": ErrorResponse}}
@@ -215,3 +216,33 @@ async def revoke_key(
     """Revoke a website key (it stops working at once)."""
     await campaign_service.revoke_key(session, request, current, campaign_id, key_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/{campaign_id}/meta-links",
+    response_model=list[AdLinkOut],
+    responses=ERRORS,
+    dependencies=[VIEW],
+)
+async def meta_links_list(
+    campaign_id: uuid.UUID, current: CurrentUserDep, session: DbSession
+) -> list[AdLinkOut]:
+    """Meta ad campaigns, ad sets and ads that feed this campaign."""
+    return await meta_links.list_links(session, current, campaign_id)
+
+
+@router.put(
+    "/{campaign_id}/meta-links",
+    response_model=list[AdLinkOut],
+    responses=ERRORS,
+    dependencies=[EDIT],
+)
+async def meta_links_set(
+    campaign_id: uuid.UUID,
+    body: AdLinksSet,
+    request: Request,
+    current: CurrentUserDep,
+    session: DbSession,
+) -> list[AdLinkOut]:
+    """Link this campaign to Meta (the most specific link wins when a lead arrives)."""
+    return await meta_links.set_links(session, request, current, campaign_id, body.links)

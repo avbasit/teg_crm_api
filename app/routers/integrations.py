@@ -6,8 +6,9 @@ change selection, assignment and run a sync; delete to disconnect. The webhook i
 public but every delivery must carry Meta's signature.
 """
 
+import uuid
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, Request, Response, status
 from fastapi.responses import PlainTextResponse, RedirectResponse
@@ -23,6 +24,7 @@ from app.models.leads import Lead
 from app.schemas.common import ErrorResponse
 from app.schemas.integrations import (
     AdAccountOut,
+    AdNode,
     AssignModeIn,
     ConnectUrl,
     IntegrationOut,
@@ -32,7 +34,7 @@ from app.schemas.integrations import (
     SyncResult,
 )
 from app.schemas.users import UserRef
-from app.services import meta_service
+from app.services import meta_links, meta_service
 from app.services.intake_service import now_utc
 
 router = APIRouter(
@@ -245,3 +247,20 @@ async def meta_webhook(request: Request, session: DbSession) -> dict[str, int]:
         session, body, request.headers.get("x-hub-signature-256")
     )
     return {"handled": handled}
+
+
+@router.get(
+    "/meta/browse",
+    response_model=list[AdNode],
+    responses=ERRORS,
+    dependencies=[RequirePermission("campaigns", "edit")],
+)
+async def meta_browse(
+    current: CurrentUserDep,
+    session: DbSession,
+    ad_account_id: uuid.UUID,
+    level: Literal["campaigns", "adsets", "ads"] = "campaigns",
+    parent: str | None = None,
+) -> list[AdNode]:
+    """Live list of ad campaigns, ad sets or ads, with what each is linked to."""
+    return await meta_links.browse(session, current, ad_account_id, level, parent)

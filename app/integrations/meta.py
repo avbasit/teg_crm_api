@@ -55,6 +55,9 @@ class MetaApi(Protocol):
     async def insights(  # noqa: D102
         self, account_id: str, token: str, since: date, until: date
     ) -> list[dict[str, Any]]: ...
+    async def children(  # noqa: D102
+        self, parent: str, edge: str, token: str
+    ) -> list[dict[str, Any]]: ...
 
 
 def valid_signature(body: bytes, header: str | None) -> bool:
@@ -206,6 +209,14 @@ class MetaClient:
                 "limit": 500,
             },
             limit=20000,
+        )
+
+    async def children(self, parent: str, edge: str, token: str) -> list[dict[str, Any]]:
+        """List ``act_<id>/campaigns``, ``<campaign>/adsets`` or ``<adset>/ads``."""
+        return await self._all(
+            f"{parent}/{edge}",
+            {"fields": "id,name,effective_status", "access_token": token, "limit": 200},
+            limit=1000,
         )
 
 

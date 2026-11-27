@@ -112,6 +112,9 @@ class AdSet(UuidPrimaryKeyMixin, TimestampMixin, Base):
     )
     external_id: Mapped[str] = mapped_column(Text)
     name: Mapped[str] = mapped_column(Text)
+    crm_campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="SET NULL")
+    )
 
 
 class Ad(UuidPrimaryKeyMixin, TimestampMixin, Base):
@@ -124,6 +127,9 @@ class Ad(UuidPrimaryKeyMixin, TimestampMixin, Base):
     )
     external_id: Mapped[str] = mapped_column(Text)
     name: Mapped[str] = mapped_column(Text)
+    crm_campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="SET NULL")
+    )
 
 
 class AdInsightDaily(Base):

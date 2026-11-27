@@ -77,13 +77,14 @@ CREATE TABLE ad_campaigns (
   CONSTRAINT uq_ad_campaigns_organization_id_provider_external_id UNIQUE (organization_id, provider, external_id)
 );
 CREATE INDEX ix_ad_campaigns_crm_campaign_id ON ad_campaigns (crm_campaign_id);
-COMMENT ON COLUMN ad_campaigns.crm_campaign_id IS 'The CRM campaign its leads go into (created automatically on the first lead).';
+COMMENT ON COLUMN ad_campaigns.crm_campaign_id IS 'The CRM campaign its leads go into: linked by a user (Campaign › Meta ads), or created automatically on the first lead of an unlinked ad.';
 
 CREATE TABLE ad_sets (
   id             uuid PRIMARY KEY DEFAULT uuidv7(),
   ad_campaign_id uuid NOT NULL REFERENCES ad_campaigns(id) ON DELETE CASCADE,
   external_id    text NOT NULL,
   name           text NOT NULL,
+  crm_campaign_id uuid REFERENCES campaigns(id) ON DELETE SET NULL,
   created_at     timestamptz NOT NULL DEFAULT now(),
   updated_at     timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT uq_ad_sets_ad_campaign_id_external_id UNIQUE (ad_campaign_id, external_id)
@@ -94,10 +95,14 @@ CREATE TABLE ads (
   ad_set_id   uuid NOT NULL REFERENCES ad_sets(id) ON DELETE CASCADE,
   external_id text NOT NULL,
   name        text NOT NULL,
+  crm_campaign_id uuid REFERENCES campaigns(id) ON DELETE SET NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT uq_ads_ad_set_id_external_id UNIQUE (ad_set_id, external_id)
 );
+CREATE INDEX ix_ad_sets_crm_campaign_id ON ad_sets (crm_campaign_id) WHERE crm_campaign_id IS NOT NULL;
+CREATE INDEX ix_ads_crm_campaign_id ON ads (crm_campaign_id) WHERE crm_campaign_id IS NOT NULL;
+COMMENT ON COLUMN ads.crm_campaign_id IS 'Jaldi-style link: leads from this ad go to this CRM campaign. The most specific link wins (ad, then ad set, then ad campaign).';
 
 CREATE TABLE ad_insights_daily (
   id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

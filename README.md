@@ -61,7 +61,7 @@ All under `/api/v1`. The full contract is at `/api/v1/docs` (hidden when `APP_EN
 | Campaigns | `GET /campaigns` (status tab, search, paging), `GET /campaigns/counts`, `GET /campaigns/agent-options`, `POST /campaigns`, `GET/PATCH/DELETE /campaigns/{id}`, `PATCH /campaigns/{id}/status` | `campaigns` · view/create/edit/delete |
 | Round-robin | `PUT /campaigns/{id}/agents`, `PATCH /campaigns/{id}/agents/{user_id}` (on/off) | `campaigns` · assign |
 | Website keys | `GET/POST /campaigns/{id}/api-keys`, `DELETE /campaigns/{id}/api-keys/{key_id}` (revoke; the secret is returned once) | `campaigns` · edit |
-| Website intake | `POST /intake/leads` with header `X-Api-Key` (CORS open for this path only) | a campaign's website key, no session |
+| Website intake | `POST /intake/leads`: JSON with header `X-Api-Key`, or Elementor's webhook (form-encoded, `?key=`, answered with 200). Fields matched by label; Country Code is joined to the phone | a campaign's website key, no session |
 | Imports | `POST /imports`, `POST /imports/{id}/rows` (≤ 250 mapped rows per call), `POST /imports/{id}/complete`, `GET /imports`, `GET /imports/{id}`, `GET /imports/{id}/rows` (problem rows) | `leads.import` · view/create |
 | Markets | `GET /settings/markets`, `POST /settings/markets`, `PATCH /settings/markets/{id}` | reading: signed in · changing: `settings.customizations` |
 | Duplicate rules | `GET/PATCH /settings/duplicates` | `settings.duplicates` · view/edit |
@@ -69,6 +69,7 @@ All under `/api/v1`. The full contract is at `/api/v1/docs` (hidden when `APP_EN
 | Productivity dashboard | `GET /reports/productivity`, `GET /reports/productivity/export` (same filters) | `dashboard.productivity` · view / export |
 | Dashboard filters | `GET /reports/filters?dashboard=pipeline\|productivity` (campaigns, programmes, markets, teams, people in your scope) | that dashboard · view |
 | Marketing dashboard | `GET /reports/marketing`, `GET /reports/marketing/export` (drill-down CSV), same filters | `dashboard.marketing` · view / export |
+| Meta links | `GET/PUT /campaigns/{id}/meta-links` (link a CRM campaign to Meta ad campaigns, ad sets or ads; most specific wins), `GET /integrations/meta/browse` (live list of campaigns, ad sets, ads) | `campaigns` · view / edit |
 | Integrations | `GET /integrations`, `GET /integrations/meta/connect`, `PUT /integrations/meta/selection`, `PATCH /integrations/meta/settings` (assign mode), `POST /integrations/meta/sync`, `DELETE /integrations/meta` | `settings.integrations` · view/create/edit/delete |
 | Meta webhook | `GET/POST /integrations/meta/webhook` (verify token; `X-Hub-Signature-256`), `GET /integrations/meta/callback` (OAuth, via the web domain) | Meta's signature / signed state |
 | Jobs | `GET /jobs/leads` (every 15 min), `GET /jobs/spend` (daily), called by `.github/workflows/jobs.yml` | `Authorization: Bearer $CRON_SECRET` |
